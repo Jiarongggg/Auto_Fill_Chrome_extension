@@ -1,6 +1,13 @@
-// Mark readiness
-window.__AF_CONTENT_READY__ = true;
-console.debug("[AutoFill] content script loaded on", location.href);
+(function() {
+    // Prevent multiple injections
+    if (window.__AF_CONTENT_READY__) {
+        console.log("[AutoFill] Script already injected, skipping");
+        return;
+    }
+
+    // Mark readiness
+    window.__AF_CONTENT_READY__ = true;
+    console.debug("[AutoFill] content script loaded on", location.href);
 
 // ============================================
 // DYNAMIC FIELD MATCHER CLASS
@@ -21,7 +28,8 @@ class DynamicFieldMatcher {
             descriptive: /\b(description|summary|bio|about|details|notes|comments|message)\b/i
         };
         this.ngramCache = new Map();
-        this.similarityThreshold = 0.5; // Lowered for better matching
+        this.similarityThreshold = 0.4;
+        this.requireDirectMatch = true;
     }
 
     generateNgrams(text, n = 3) {
@@ -71,42 +79,105 @@ class DynamicFieldMatcher {
     }
 
     matchFieldToProfile(fieldContext, profile) {
+        if (!profile || !fieldContext) return { key: null, confidence: 0 };
+        
         // First check autocomplete
         if (fieldContext.autocomplete && profile[fieldContext.autocomplete]) {
             return { key: fieldContext.autocomplete, confidence: 1.0 };
         }
         
         let bestMatch = { key: null, confidence: 0 };
+        const fieldText = fieldContext.combinedText.toLowerCase();
         
+        // Check ALL profile fields dynamically
         for (const [profileKey, profileValue] of Object.entries(profile)) {
+            // Skip empty/null values and complex objects
             if (!profileValue || typeof profileValue === 'object') continue;
             
-            const keySimilarity = this.calculateSimilarity(fieldContext.combinedText, profileKey);
+            let score = 0;
+            const keyLower = profileKey.toLowerCase();
             
-            const keyVariations = this.generateKeyVariations(profileKey);
-            let maxVariationSim = keySimilarity;
-            
-            for (const variation of keyVariations) {
-                const sim = this.calculateSimilarity(fieldContext.combinedText, variation);
-                maxVariationSim = Math.max(maxVariationSim, sim);
+            // 1. HIGHEST PRIORITY - Exact keyword matches
+            if (fieldText.includes(keyLower)) {
+                score += 0.5;
             }
             
-            let patternBoost = 0;
-            for (const [patternType, pattern] of Object.entries(this.linguisticPatterns)) {
-                if (pattern.test(fieldContext.combinedText) && pattern.test(profileKey)) {
-                    patternBoost += 0.1;
+            // 2. Check for exact word matches in key variations
+            const keyWords = keyLower.replace(/([A-Z])/g, ' $1').toLowerCase()
+                .split(/[\s_-]+/)
+                .filter(w => w.length > 2);
+            
+            let exactWordMatches = 0;
+            for (const word of keyWords) {
+                if (word.length > 3 && fieldText.includes(word)) {
+                    exactWordMatches++;
+                }
+            }
+            score += exactWordMatches * 0.3;
+            
+            // 3. Special handling for known confusing cases
+            if (profileKey === 'city' && /\b(college|university|school|education)\b/i.test(fieldText)) {
+                score -= 0.5;
+            }
+            if (profileKey === 'university' && /\b(college|university|school|institution)\b/i.test(fieldText)) {
+                score += 0.4;
+            }
+            
+            // 4. Check key variations
+            const keyVariations = this.generateKeyVariations(profileKey);
+            for (const variation of keyVariations) {
+                if (fieldText.includes(variation.toLowerCase())) {
+                    score += 0.2;
+                    break;
                 }
             }
             
-            const typeBoost = this.getTypeCompatibilityScore(fieldContext.type, profileKey, profileValue);
-            const finalScore = maxVariationSim + patternBoost + typeBoost;
+            // 5. Lower weight for similarity scores
+            const keySimilarity = this.calculateSimilarity(fieldText, keyLower);
+            score += keySimilarity * 0.1;
             
-            if (finalScore > bestMatch.confidence) {
-                bestMatch = { key: profileKey, confidence: finalScore };
+            // 6. Linguistic pattern matching
+            for (const [patternType, pattern] of Object.entries(this.linguisticPatterns)) {
+                if (pattern.test(fieldText) && pattern.test(keyLower)) {
+                    score += 0.05;
+                    break;
+                }
+            }
+            
+            // 7. Type compatibility bonus
+            const typeBoost = this.getTypeCompatibilityScore(fieldContext.type, profileKey, profileValue);
+            score += typeBoost;
+            
+            // 8. Exact match bonuses
+            if (fieldContext.name === profileKey || fieldContext.id === profileKey) {
+                score += 0.4;
+            }
+            if (fieldContext.placeholder && fieldContext.placeholder.toLowerCase().includes(keyLower)) {
+                score += 0.2;
+            }
+            
+            // Cap score at 1.0
+            score = Math.min(score, 1.0);
+            
+            // Update best match
+            if (score > bestMatch.confidence) {
+                bestMatch = { key: profileKey, confidence: score };
+            }
+            
+            // Debug logging for education fields
+            if (DEBUG_MODE && /\b(college|university|school)\b/i.test(fieldText) && 
+                (profileKey === 'city' || profileKey === 'university')) {
+                console.log(`[DynamicMatcher] Education field "${fieldText.substring(0, 50)}..." scored ${profileKey}: ${score.toFixed(2)}`);
             }
         }
         
-        return bestMatch.confidence >= this.similarityThreshold ? bestMatch : { key: null, confidence: 0 };
+        // Debug logging
+        if (DEBUG_MODE && bestMatch.confidence > 0.2) {
+            console.log(`[DynamicMatcher] Field "${fieldContext.combinedText.substring(0, 50)}..." best match: ${bestMatch.key} (confidence: ${bestMatch.confidence.toFixed(2)})`);
+        }
+        
+        // Return best match if above threshold
+        return bestMatch.confidence >= this.similarityThreshold ? bestMatch : { key: null, confidence: bestMatch.confidence };
     }
 
     generateKeyVariations(key) {
@@ -186,25 +257,213 @@ class DynamicFieldMatcher {
     }
 }
 
-// Initialize the dynamic matcher
-const dynamicMatcher = new DynamicFieldMatcher();
+// ============================================
+// DYNAMIC OPTION MATCHER CLASS
+// ============================================
+class DynamicOptionMatcher {
+    constructor() {
+        this.similarityThreshold = 0.5; // Lowered from 0.6
+    }
+    
+    calculateOptionSimilarity(profileValue, optionText, optionValue) {
+        if (!profileValue) return 0;
+        
+        const profileNorm = this.normalize(profileValue);
+        const optionTextNorm = this.normalize(optionText);
+        const optionValueNorm = this.normalize(optionValue);
+        
+        // Direct match
+        if (profileNorm === optionTextNorm || profileNorm === optionValueNorm) {
+            return 1.0;
+        }
+        
+        // Extract meaningful words
+        const profileWords = this.extractWords(profileNorm);
+        const optionWords = new Set([
+            ...this.extractWords(optionTextNorm),
+            ...this.extractWords(optionValueNorm)
+        ]);
+        
+        let score = 0;
+        
+        // Check for word matches
+        for (const pWord of profileWords) {
+            if (optionWords.has(pWord)) {
+                score += 0.3;
+            }
+            
+            // Check semantic equivalents with higher weight
+            const equivalents = this.getSemanticEquivalents(pWord);
+            for (const equiv of equivalents) {
+                if (optionWords.has(equiv)) {
+                    score += 0.5; // Increased from 0.4
+                    break;
+                }
+            }
+        }
+        
+        // Special handling for degree levels
+        if (this.isDegreeField(profileValue)) {
+            const degreeLevel = this.extractDegreeLevel(profileNorm);
+            const optionLevel = this.extractDegreeLevel(optionTextNorm + ' ' + optionValueNorm);
+            
+            if (degreeLevel && optionLevel && degreeLevel === optionLevel) {
+                score = Math.max(score, 0.8); // Strong match for correct degree level
+            }
+        }
+        
+        // N-gram similarity for partial matching
+        const ngramScore = this.ngramSimilarity(profileNorm, optionTextNorm);
+        score += ngramScore * 0.2; // Reduced from 0.3
+        
+        return Math.min(score, 1.0);
+    }
+    
+    isDegreeField(value) {
+        const degreeKeywords = /\b(bachelor|master|phd|doctorate|associate|diploma|certificate|degree|bs|ba|ms|ma|mba|msc|bsc)\b/i;
+        return degreeKeywords.test(value);
+    }
+    
+    extractDegreeLevel(text) {
+        const textLower = text.toLowerCase();
+        
+        // Map degree names to education levels
+        if (/\b(bachelor|bachelors|bs|ba|bsc|b\.s\.|b\.a\.|undergraduate|undergrad|college)\b/.test(textLower)) {
+            return 'undergraduate';
+        }
+        if (/\b(master|masters|ms|ma|mba|msc|m\.s\.|m\.a\.|graduate|grad school|postgraduate)\b/.test(textLower)) {
+            return 'graduate';
+        }
+        if (/\b(phd|ph\.d|doctorate|doctoral|postdoc|post-doc)\b/.test(textLower)) {
+            return 'doctorate';
+        }
+        if (/\b(high school|highschool|secondary|hs|k-12)\b/.test(textLower)) {
+            return 'highschool';
+        }
+        if (/\b(associate|associates|aa|as|a\.a\.|a\.s\.)\b/.test(textLower)) {
+            return 'associate';
+        }
+        
+        return null;
+    }
+    
+    normalize(text) {
+        return (text || '').toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+    
+    extractWords(text) {
+        return new Set(text.split(' ').filter(w => w.length > 2));
+    }
+    
+    ngramSimilarity(text1, text2, n = 3) {
+        const ngrams1 = this.generateNgrams(text1, n);
+        const ngrams2 = this.generateNgrams(text2, n);
+        
+        if (ngrams1.size === 0 || ngrams2.size === 0) return 0;
+        
+        const intersection = new Set([...ngrams1].filter(x => ngrams2.has(x)));
+        const union = new Set([...ngrams1, ...ngrams2]);
+        
+        return intersection.size / union.size;
+    }
+    
+    generateNgrams(text, n) {
+        const ngrams = new Set();
+        const cleaned = text.replace(/\s/g, '');
+        for (let i = 0; i <= cleaned.length - n; i++) {
+            ngrams.add(cleaned.substr(i, n));
+        }
+        return ngrams;
+    }
+    
+    getSemanticEquivalents(word) {
+        // Expanded semantic groups with more comprehensive mappings
+        const semanticGroups = [
+            // Degree levels - EXPANDED
+            ['bachelor', 'bachelors', 'undergraduate', 'undergrad', 'college', 'bsc', 'ba', 'bs', 'university'],
+            ['master', 'masters', 'graduate', 'grad', 'postgraduate', 'postgrad', 'msc', 'ma', 'ms', 'mba'],
+            ['phd', 'doctorate', 'doctoral', 'doctor', 'postdoc', 'research'],
+            ['high', 'secondary', 'highschool', 'school', 'k12'],
+            ['associate', 'associates', 'community', 'junior'],
+            
+            // Degree types
+            ['science', 'sciences', 'scientific', 'stem'],
+            ['arts', 'humanities', 'liberal'],
+            ['engineering', 'engineer', 'technical'],
+            ['business', 'commerce', 'management', 'administration'],
+            
+            // Other existing groups
+            ['work', 'job', 'employment', 'professional', 'career'],
+            ['study', 'education', 'academic', 'school', 'learning'],
+            ['current', 'present', 'ongoing', 'active', 'now'],
+            ['previous', 'past', 'former', 'prior', 'completed'],
+            ['full', 'complete', 'entire', 'whole', 'fulltime'],
+            ['part', 'partial', 'incomplete', 'some', 'parttime']
+        ];
+        
+        for (const group of semanticGroups) {
+            if (group.includes(word)) {
+                return group.filter(w => w !== word);
+            }
+        }
+        
+        return [];
+    }
+    
+    findBestOption(select, profileValue) {
+        let bestOption = null;
+        let bestScore = 0;
+        
+        // Debug logging
+        if (DEBUG_MODE && this.isDegreeField(profileValue)) {
+            console.log(`[DynamicOptionMatcher] Matching degree "${profileValue}" against options:`);
+        }
+        
+        for (const option of select.options) {
+            const score = this.calculateOptionSimilarity(
+                profileValue,
+                option.textContent || option.innerText || '',
+                option.value
+            );
+            
+            if (DEBUG_MODE && this.isDegreeField(profileValue) && score > 0) {
+                console.log(`  - Option "${option.textContent}": score ${score.toFixed(2)}`);
+            }
+            
+            if (score > bestScore) {
+                bestScore = score;
+                bestOption = option;
+            }
+        }
+        
+        if (DEBUG_MODE && this.isDegreeField(profileValue)) {
+            if (bestOption) {
+                console.log(`  ✓ Selected: "${bestOption.textContent}" (score: ${bestScore.toFixed(2)})`);
+            } else {
+                console.log(`  ✗ No match found (best score: ${bestScore.toFixed(2)}, threshold: ${this.similarityThreshold})`);
+            }
+        }
+        
+        if (bestScore >= this.similarityThreshold) {
+            return bestOption;
+        }
+        
+        return null;
+    }
+}
 
-// Initialize AWS service with local LLM if available
+// Initialize the matchers
+const dynamicMatcher = new DynamicFieldMatcher();
+const optionMatcher = new DynamicOptionMatcher();
+
+// Initialize AWS service (mock by default) - ONLY if aws-service.js is loaded
 let awsService = null;
 if (typeof FieldMatchingService !== 'undefined') {
-    awsService = new FieldMatchingService({
-        useMockService: false,
-        localModel: {
-            enabled: true,
-            endpoint: 'http://localhost:11434/api/generate',
-            model: 'llama3:1b'
-        }
-    });
-    // Ensure global config reflects local model usage so guessFieldKey invokes the service
-    if (typeof SERVICE_CONFIG !== 'undefined') {
-        SERVICE_CONFIG.useMockService = false;
-        SERVICE_CONFIG.localModel = awsService.localModel;
-    }
+    awsService = new FieldMatchingService({ useMockService: true });
+    console.log("[AutoFill] AWS service initialized (mock mode)");
 }
 
 // ============================================
@@ -257,6 +516,13 @@ const AUTOCOMPLETE_MAP = {
 
 function scoreLabelAgainstRule(label, placeholder, nameAttr, idAttr, rule) {
     const hay = norm([label, placeholder, nameAttr, idAttr].filter(Boolean).join(" "));
+    
+    if (rule.key === "fullName") {
+        if (/\b(middle|preferred|maiden|nickname)\b/.test(hay)) {
+            return 0;
+        }
+    }
+    
     let s = 0;
     for (const cand of rule.any) {
         const c = norm(cand); if (!c) continue;
@@ -311,10 +577,8 @@ function nameHintFromAttrs(nameAttr = "", idAttr = "") {
 // ENHANCED FIELD KEY GUESSING WITH DEBUG TRACKING
 // ============================================
 
-// Global flag to enable detailed debugging
-const DEBUG_MODE = true;  // Set to false in production
+const DEBUG_MODE = true;
 
-// Track statistics for each matching method
 const matchingStats = {
     autocomplete: { attempts: 0, successes: 0 },
     nameHints: { attempts: 0, successes: 0 },
@@ -390,13 +654,13 @@ async function guessFieldKey(input, meta, profile) {
         }
     }
     
-    // 4. Try dynamic matching if profile is provided
+    // 4. Try dynamic matching if profile is provided - UPDATED THRESHOLD
     if (profile) {
         matchingStats.dynamic.attempts++;
         const fieldContext = dynamicMatcher.extractFieldContext(input);
         const match = dynamicMatcher.matchFieldToProfile(fieldContext, profile);
         
-        if (match.confidence >= 0.5) {
+        if (match.confidence >= 0.4) { // LOWERED from 0.5 to match the class threshold
             matchingStats.dynamic.successes++;
             debugInfo.matchMethod = 'dynamic';
             debugInfo.confidence = match.confidence;
@@ -409,10 +673,52 @@ async function guessFieldKey(input, meta, profile) {
         }
         debugInfo.attempts.push({ method: 'dynamic', result: `low confidence (${match.confidence.toFixed(2)})` });
         
-        // Log near-misses for debugging
-        if (DEBUG_MODE && match.confidence > 0.3) {
-            console.warn(`⚠️ [AutoFill] NEAR MISS - Dynamic match for "${debugInfo.field}": ${match.key} (confidence: ${match.confidence.toFixed(2)}, threshold: 0.5)`);
+        if (DEBUG_MODE && match.confidence > 0.2) {
+            console.warn(`⚠️ [AutoFill] NEAR MISS - Dynamic match for "${debugInfo.field}": ${match.key} (confidence: ${match.confidence.toFixed(2)}, threshold: 0.4)`);
         }
+    }
+    
+    // 4.5 Check for special name fields that require specific data
+    const combinedText = [meta.label, meta.placeholder, meta.name, meta.id].join(' ').toLowerCase();
+    
+    if (/\b(preferred\s?name|display\s?name)\b/i.test(combinedText)) {
+        if (profile && profile.preferredName) {
+            if (DEBUG_MODE) {
+                console.log(`✅ [AutoFill] SPECIAL FIELD match for "${debugInfo.field}": preferredName`);
+            }
+            return 'preferredName';
+        }
+        return null;
+    }
+    
+    if (/\b(middle\s?name|middle\s?initial|mi)\b/i.test(combinedText)) {
+        if (profile && (profile.middleName || profile.middleInitial)) {
+            if (DEBUG_MODE) {
+                console.log(`✅ [AutoFill] SPECIAL FIELD match for "${debugInfo.field}": middleName`);
+            }
+            return profile.middleName ? 'middleName' : 'middleInitial';
+        }
+        return null;
+    }
+    
+    if (/\b(maiden\s?name)\b/i.test(combinedText)) {
+        if (profile && profile.maidenName) {
+            if (DEBUG_MODE) {
+                console.log(`✅ [AutoFill] SPECIAL FIELD match for "${debugInfo.field}": maidenName`);
+            }
+            return 'maidenName';
+        }
+        return null;
+    }
+    
+    if (/\b(nick\s?name)\b/i.test(combinedText)) {
+        if (profile && profile.nickname) {
+            if (DEBUG_MODE) {
+                console.log(`✅ [AutoFill] SPECIAL FIELD match for "${debugInfo.field}": nickname`);
+            }
+            return 'nickname';
+        }
+        return null;
     }
     
     // 5. Fall back to original rule-based matching
@@ -433,7 +739,7 @@ async function guessFieldKey(input, meta, profile) {
     if (best.score >= 3) {
         matchingStats.rules.successes++;
         debugInfo.matchMethod = 'rules';
-        debugInfo.confidence = best.score / 10; // Normalize score to 0-1
+        debugInfo.confidence = best.score / 10;
         
         if (DEBUG_MODE) {
             console.log(`⚠️ [AutoFill] FALLBACK RULES match for "${debugInfo.field}": ${best.key} (score: ${best.score})`);
@@ -462,7 +768,6 @@ async function guessFieldKey(input, meta, profile) {
         return typeMatch;
     }
     
-    // No match found
     matchingStats.failed.count++;
     
     if (DEBUG_MODE) {
@@ -529,7 +834,6 @@ function reportMatchingStatistics() {
         }
     });
     
-    // Performance summary
     const dynamicSuccess = matchingStats.dynamic.attempts > 0
         ? (matchingStats.dynamic.successes / matchingStats.dynamic.attempts * 100).toFixed(1)
         : 0;
@@ -557,7 +861,6 @@ function reportMatchingStatistics() {
 // ============================================
 
 function createDebugOverlay() {
-    // Create a floating debug panel
     const panel = document.createElement('div');
     panel.id = 'autofill-debug-panel';
     panel.style.cssText = `
@@ -585,7 +888,6 @@ function createDebugOverlay() {
     
     document.body.appendChild(panel);
     
-    // Update stats display
     function updateDebugDisplay() {
         const statsDiv = document.getElementById('debug-stats');
         statsDiv.innerHTML = `
@@ -597,7 +899,6 @@ function createDebugOverlay() {
     
     updateDebugDisplay();
     
-    // Button handlers
     document.getElementById('clear-debug').onclick = () => {
         Object.keys(matchingStats).forEach(key => {
             if (matchingStats[key].attempts !== undefined) {
@@ -622,15 +923,12 @@ function createDebugOverlay() {
 // ============================================
 
 async function fillNowWithDebug() {
-    // Reset stats for this fill operation
     if (DEBUG_MODE) {
         console.group('🔍 [AutoFill] Starting Fill Operation');
     }
     
-    // Run normal fill
     await fillNow();
     
-    // Report statistics
     if (DEBUG_MODE) {
         reportMatchingStatistics();
         console.groupEnd();
@@ -641,7 +939,6 @@ async function fillNowWithDebug() {
 // ADD DEBUG COMMANDS
 // ============================================
 
-// Make functions available in console for testing
 window.autofillDebug = {
     stats: () => reportMatchingStatistics(),
     showPanel: () => createDebugOverlay(),
@@ -650,14 +947,12 @@ window.autofillDebug = {
         console.log(`Debug mode ${enabled ? 'enabled' : 'disabled'}`);
     },
     testDynamic: async () => {
-        // Force dynamic matcher only
         const tempThreshold = dynamicMatcher.similarityThreshold;
-        dynamicMatcher.similarityThreshold = 0; // Accept any match
+        dynamicMatcher.similarityThreshold = 0;
         await fillNowWithDebug();
         dynamicMatcher.similarityThreshold = tempThreshold;
     },
     testRules: async () => {
-        // Force rules only by temporarily disabling dynamic
         const temp = dynamicMatcher.matchFieldToProfile;
         dynamicMatcher.matchFieldToProfile = () => ({ key: null, confidence: 0 });
         await fillNowWithDebug();
@@ -668,7 +963,7 @@ window.autofillDebug = {
 console.log('💡 [AutoFill] Debug mode enabled. Use window.autofillDebug.stats() to see statistics.');
 
 // ============================================
-// VALUE SETTERS (UNCHANGED)
+// VALUE SETTERS
 // ============================================
 function fireInputEvents(el) {
     el.dispatchEvent(new Event("input", { bubbles: true }));
@@ -693,6 +988,7 @@ function normalizeCountry(s) {
 
 function setSelectByTextOrValue(select, desiredRaw) {
     if (!desiredRaw) return false;
+    
     const desired = norm(desiredRaw);
     const desiredCountry = normalizeCountry(desiredRaw);
 
@@ -714,11 +1010,23 @@ function setSelectByTextOrValue(select, desiredRaw) {
         const s = Math.max(...scores);
         if (s > bestScore) { bestScore = s; best = opt; }
     }
+    
     if (best && bestScore >= 3) {
         select.value = best.value;
         fireInputEvents(select);
         return true;
     }
+    
+    const dynamicMatch = optionMatcher.findBestOption(select, desiredRaw);
+    if (dynamicMatch) {
+        select.value = dynamicMatch.value;
+        fireInputEvents(select);
+        if (DEBUG_MODE) {
+            console.log(`✅ [AutoFill] DYNAMIC OPTION match: "${desiredRaw}" → "${dynamicMatch.textContent}"`);
+        }
+        return true;
+    }
+    
     return false;
 }
 
@@ -745,7 +1053,7 @@ function decorate(el, ok) {
 }
 
 // ============================================
-// PROFILE LOADER (CHANGED)
+// PROFILE LOADER
 // ============================================
 async function getUserIdentifier() {
     const storage = await chrome.storage.local.get(['currentUserId']);
@@ -755,13 +1063,11 @@ async function getUserIdentifier() {
 async function loadProfile() {
     console.log('[AutoFill] Loading profile...');
     
-    // Check if we should sync with AWS
     const settings = await chrome.storage.local.get(['syncWithAWS', 'lastSyncTime']);
-    const shouldSync = settings.syncWithAWS !== false; // Default to true
+    const shouldSync = settings.syncWithAWS !== false;
     const lastSync = settings.lastSyncTime || 0;
     const hoursSinceSync = (Date.now() - lastSync) / (1000 * 60 * 60);
     
-    // Try to load from AWS if enabled and it's been > 1 hour
     if (shouldSync && hoursSinceSync > 1 && typeof StorageService !== 'undefined') {
         try {
             console.log('[AutoFill] Fetching latest profile from AWS...');
@@ -772,7 +1078,6 @@ async function loadProfile() {
             if (remoteProfile && remoteProfile.data) {
                 console.log('[AutoFill] Successfully fetched profile from AWS');
                 
-                // Save AWS data locally (user can edit this)
                 await chrome.storage.local.set({ 
                     af_profile: remoteProfile.data,
                     lastSyncTime: Date.now(),
@@ -786,11 +1091,9 @@ async function loadProfile() {
         }
     }
     
-    // Load from local storage (either AWS-synced or user-edited)
     const local = await chrome.storage.local.get(["af_profile", "af_profile_enc"]);
     
     if (local.af_profile_enc) {
-        // Handle encrypted profile
         let pass = "";
         try { 
             const s = await chrome.storage.session.get("af_passphrase"); 
@@ -825,22 +1128,18 @@ function detectDateFieldType(element, meta) {
         element.className || ''
     ].filter(Boolean).join(' ').toLowerCase();
     
-    // Detect day field
     if (/\b(day|dd|date)\b/.test(combinedText) && 
         !/\b(month|mm|year|yyyy|yy)\b/.test(combinedText)) {
-        // Check if it's in a date group
         if (isPartOfDateGroup(element)) return "birthDay";
         if (/\b(birth|dob|born)\b/.test(combinedText)) return "birthDay";
     }
     
-    // Detect month field
     if (/\b(month|mm)\b/.test(combinedText) && 
         !/\b(day|dd|year|yyyy|yy)\b/.test(combinedText)) {
         if (isPartOfDateGroup(element)) return "birthMonth";
         if (/\b(birth|dob|born)\b/.test(combinedText)) return "birthMonth";
     }
     
-    // Detect year field
     if (/\b(year|yyyy|yy)\b/.test(combinedText) && 
         !/\b(day|dd|month|mm)\b/.test(combinedText)) {
         if (isPartOfDateGroup(element)) return "birthYear";
@@ -853,7 +1152,6 @@ function detectDateFieldType(element, meta) {
 }
 
 function isPartOfDateGroup(element) {
-    // Check if this element is near other date-related fields
     const parent = element.closest('div, fieldset, section, tr');
     if (!parent) return false;
     
@@ -873,19 +1171,18 @@ function isPartOfDateGroup(element) {
         }
     }
     
-    return dateFieldCount >= 2; // At least 2 date-related fields nearby
+    return dateFieldCount >= 2;
 }
 
 function fillDateSelect(select, value, type) {
     if (!value) return false;
     
     if (type === 'day') {
-        // Try different day formats
         const dayNum = parseInt(value, 10);
         const variations = [
-            String(dayNum),                    // "5"
-            String(dayNum).padStart(2, '0'),   // "05"
-            `${dayNum}${getOrdinalSuffix(dayNum)}` // "5th"
+            String(dayNum),
+            String(dayNum).padStart(2, '0'),
+            `${dayNum}${getOrdinalSuffix(dayNum)}`
         ];
         
         for (const variant of variations) {
@@ -895,28 +1192,26 @@ function fillDateSelect(select, value, type) {
         const monthNum = parseInt(value, 10);
         if (isNaN(monthNum)) return false;
         
-        // Try different month formats
         const MONTHS_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
         const MONTHS_SHORT = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
         
         const variations = [
-            String(monthNum),                      // "3"
-            String(monthNum).padStart(2, '0'),     // "03"
-            MONTHS_FULL[monthNum - 1],             // "March"
-            MONTHS_SHORT[monthNum - 1],            // "Mar"
-            `${monthNum} - ${MONTHS_FULL[monthNum - 1]}`, // "3 - March"
-            `${String(monthNum).padStart(2, '0')} - ${MONTHS_FULL[monthNum - 1]}` // "03 - March"
+            String(monthNum),
+            String(monthNum).padStart(2, '0'),
+            MONTHS_FULL[monthNum - 1],
+            MONTHS_SHORT[monthNum - 1],
+            `${monthNum} - ${MONTHS_FULL[monthNum - 1]}`,
+            `${String(monthNum).padStart(2, '0')} - ${MONTHS_FULL[monthNum - 1]}`
         ];
         
         for (const variant of variations) {
             if (setSelectByTextOrValue(select, variant)) return true;
         }
     } else if (type === 'year') {
-        // Try different year formats
         const yearStr = String(value);
         const variations = [
-            yearStr,                               // "1995"
-            yearStr.slice(-2)                      // "95" (last 2 digits)
+            yearStr,
+            yearStr.slice(-2)
         ];
         
         for (const variant of variations) {
@@ -938,7 +1233,7 @@ function getOrdinalSuffix(day) {
 }
 
 // ============================================
-// MAIN FILL FUNCTION (ENHANCED)
+// MAIN FILL FUNCTION
 // ============================================
 async function fillNow() {
     const profile = await loadProfile();
@@ -947,7 +1242,6 @@ async function fillNow() {
     const elements = Array.from(document.querySelectorAll("input, textarea, select"));
     let filled = 0;
     
-    // Track filled date components to avoid duplicates
     const filledDateComponents = new Set();
 
     for (const el of elements) {
@@ -960,24 +1254,19 @@ async function fillNow() {
             id: el.id || ""
         };
         
-        // First check for date field components
         let key = detectDateFieldType(el, meta);
         
-        // If not a date component, use regular matching
         if (!key) {
             key = await guessFieldKey(el, meta, profile);
         }
         
-        // Skip if we've already filled this date component type
         if (key && ['birthDay', 'birthMonth', 'birthYear'].includes(key)) {
             if (filledDateComponents.has(key)) continue;
             filledDateComponents.add(key);
         }
 
-        // Derived values
         let value = profile[key];
 
-        // Handle birthday components
         if ((key === "birthYear" || key === "birthMonth" || key === "birthDay") && profile.birthday) {
             const [y, m, d] = profile.birthday.split("-");
             if (key === "birthYear") value = y;
@@ -985,7 +1274,6 @@ async function fillNow() {
             if (key === "birthDay") value = String(parseInt(d, 10));
         }
 
-        // FullName → split if specific fields exist
         if ((key === "firstName" || key === "lastName") && !value && profile.fullName) {
             const parts = profile.fullName.trim().split(/\s+/);
             if (parts.length >= 2) {
@@ -995,7 +1283,6 @@ async function fillNow() {
 
         let ok = false;
         if (el instanceof HTMLSelectElement) {
-            // Special handling for date selects
             if (key === "birthDay" && profile.birthday) {
                 const [, , d] = profile.birthday.split("-");
                 ok = fillDateSelect(el, d, 'day');
@@ -1008,7 +1295,6 @@ async function fillNow() {
             } else if (key === "gradYear" && profile.gradYear) {
                 ok = fillDateSelect(el, profile.gradYear, 'year');
             } else {
-                // Regular select handling
                 ok = setSelectByTextOrValue(el, value);
             }
         } else if (el instanceof HTMLInputElement) {
@@ -1016,7 +1302,6 @@ async function fillNow() {
                 ok = setDateInput(el, key, profile);
                 if (!ok && value && /^\d{4}-\d{2}-\d{2}$/.test(value)) ok = setTextLike(el, value);
             } else if (el.type === "number" || el.type === "text") {
-                // Handle numeric date inputs
                 if (key === "birthDay" && profile.birthday) {
                     const [, , d] = profile.birthday.split("-");
                     ok = setTextLike(el, String(parseInt(d, 10)));
@@ -1044,7 +1329,7 @@ async function fillNow() {
 }
 
 // ============================================
-// TEST LOGGER (UNCHANGED)
+// TEST LOGGER
 // ============================================
 function listFillableFields() {
     const elements = Array.from(document.querySelectorAll("input, textarea, select"));
@@ -1077,7 +1362,6 @@ function listFillableFields() {
 // INITIALIZATION
 // ============================================
 
-// Load learned patterns on startup
 chrome.storage.local.get(['af_field_knowledge'], (result) => {
     if (result.af_field_knowledge) {
         try {
@@ -1089,19 +1373,18 @@ chrome.storage.local.get(['af_field_knowledge'], (result) => {
     }
 });
 
-// Save learned patterns periodically
 setInterval(() => {
     const knowledge = Array.from(dynamicMatcher.fieldKnowledge.entries());
     chrome.storage.local.set({ af_field_knowledge: knowledge });
-}, 30000); // Every 30 seconds
+}, 30000);
 
-// Auto-fill on load if enabled
 chrome.storage.local.get(["af_autoFillEnabled"], ({ af_autoFillEnabled }) => {
     if (af_autoFillEnabled) fillNow();
 });
 
-// Message handlers
 chrome.runtime.onMessage.addListener((msg) => {
     if (msg?.type === "AF_FILL_NOW") fillNow();
     if (msg?.type === "AF_LIST_FIELDS") listFillableFields();
 });
+
+})();
