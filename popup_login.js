@@ -1,4 +1,3 @@
-
 // Get active tab
 async function getActiveTab() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -121,65 +120,28 @@ async function logout() {
 async function fetchUserProfile(userId) {
     console.log(`Fetching profile for ${userId}...`);
     
-    // This connects to your AWS mock service
     try {
-        // Simulate the AWS service call
-        const mockProfiles = {
-            'mock-user-123': {
-                firstName: 'John',
-                lastName: 'Doe',
-                fullName: 'John Doe',
-                email: 'john.doe@company.com',
-                phone: '+1-555-0123',
-                birthday: '1990-01-15',
-                address1: '123 Tech Street',
-                city: 'San Francisco',
-                postalCode: '94105',
-                country: 'United States',
-                university: 'Stanford University',
-                degree: 'Bachelor of Science',
-                major: 'Computer Science',
-                gpa: '3.8',
-                gradYear: '2012',
-                linkedin: 'https://linkedin.com/in/johndoe',
-                github: 'https://github.com/johndoe',
-                website: 'https://johndoe.dev',
-                summary: 'Senior Software Engineer with expertise in cloud architecture.'
-            },
-            'mock-user-456': {
-                firstName: 'Jane',
-                lastName: 'Smith',
-                fullName: 'Jane Smith',
-                email: 'jane.smith@company.com',
-                phone: '+1-555-0456',
-                birthday: '1988-05-22',
-                address1: '456 Market Street',
-                city: 'New York',
-                postalCode: '10001',
-                country: 'United States',
-                university: 'MIT',
-                degree: 'Master of Science',
-                major: 'Artificial Intelligence',
-                gpa: '3.9',
-                gradYear: '2010',
-                linkedin: 'https://linkedin.com/in/janesmith',
-                github: 'https://github.com/janesmith',
-                website: 'https://janesmith.io',
-                summary: 'AI/ML Engineering Manager with 10+ years experience.'
+        // Use the actual StorageService from aws_service.js
+        if (typeof StorageService !== 'undefined') {
+            const storageService = new StorageService(SERVICE_CONFIG);
+            const result = await storageService.loadProfile(userId);
+            
+            if (result && result.data) {
+                // Save the fetched profile to local storage
+                await chrome.storage.local.set({
+                    af_profile: result.data,
+                    lastSyncTime: Date.now(),
+                    lastSyncSource: result.metadata.source
+                });
+                
+                console.log('Profile fetched from StorageService:', result.data);
+                return result.data;
             }
-        };
+        }
         
-        const profile = mockProfiles[userId] || mockProfiles['mock-user-123'];
-        
-        // Save the fetched profile to local storage
-        await chrome.storage.local.set({
-            af_profile: profile,
-            lastSyncTime: Date.now(),
-            lastSyncSource: 'aws-mock'
-        });
-        
-        console.log('Profile fetched and saved:', profile);
-        return profile;
+        // Fallback if StorageService is not available
+        console.warn('StorageService not available, using fallback');
+        throw new Error('StorageService not loaded');
         
     } catch (error) {
         console.error('Failed to fetch profile:', error);

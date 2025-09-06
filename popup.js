@@ -101,4 +101,3 @@ lockBtn.addEventListener("click", async () => {
     renderStatus();
 });
 renderStatus();
-

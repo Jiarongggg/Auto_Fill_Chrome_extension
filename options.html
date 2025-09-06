@@ -2,75 +2,497 @@
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>AutoFill Scout – Profile</title>
+    <title>AutoFill Scout — Profile</title>
     <style>
-        body { font-family: system-ui, sans-serif; margin: 16px; max-width: 720px; }
-        .grid { display: grid; grid-template-columns: 1fr 2fr; gap: 8px 12px; }
-        input, textarea { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ccc; }
-        h2 { margin-top: 24px; }
-        button { padding: 10px 14px; border-radius: 10px; border: 1px solid #aaa; }
-        .row { margin-top: 12px; display: flex; gap: 8px; }
+        body { 
+            font-family: system-ui, sans-serif; 
+            margin: 16px; 
+            max-width: 800px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .grid { 
+            display: grid; 
+            grid-template-columns: 1fr 2fr; 
+            gap: 8px 12px;
+            margin-bottom: 20px;
+        }
+        .section-title {
+            grid-column: 1 / -1;
+            font-weight: 600;
+            color: #333;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .section-title:first-child {
+            margin-top: 0;
+            padding-top: 0;
+            border-top: none;
+        }
+        input, textarea, select { 
+            width: 100%; 
+            padding: 8px; 
+            border-radius: 8px; 
+            border: 1px solid #ccc;
+            font-size: 14px;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #4285f4;
+            box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.1);
+        }
+        label {
+            font-size: 14px;
+            color: #555;
+            display: flex;
+            align-items: center;
+        }
+        h1 { 
+            color: #333;
+            margin-bottom: 8px;
+        }
+        h2 { 
+            margin-top: 32px;
+            color: #333;
+        }
+        button { 
+            padding: 10px 20px; 
+            border-radius: 8px; 
+            border: 1px solid #aaa;
+            background: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        button:hover {
+            background: #f8f8f8;
+            border-color: #888;
+        }
+        button#save {
+            background: #4285f4;
+            color: white;
+            border: none;
+        }
+        button#save:hover {
+            background: #3275e4;
+        }
+        .row { 
+            margin-top: 12px; 
+            display: flex; 
+            gap: 8px; 
+        }
+        .info-text {
+            font-size: 13px;
+            color: #666;
+            margin: 8px 0;
+        }
+        #encStatus {
+            font-size: 12px;
+            color: #666;
+            margin-top: 6px;
+            padding: 8px;
+            background: #f0f0f0;
+            border-radius: 6px;
+        }
+        .sync-controls {
+            margin-top: 20px;
+        }
+        .sync-status {
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #syncMessage {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        
+        /* Multi-input field styles */
+        .multi-input-container {
+            grid-column: 2;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .multi-input-wrapper {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .multi-input-wrapper input,
+        .multi-input-wrapper textarea {
+            flex: 1;
+        }
+        .add-btn, .remove-btn {
+            padding: 6px 12px;
+            font-size: 18px;
+            min-width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 6px;
+            background: #f0f0f0;
+            border: 1px solid #ccc;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .add-btn:hover {
+            background: #4285f4;
+            color: white;
+            border-color: #4285f4;
+        }
+        .remove-btn:hover {
+            background: #dc3545;
+            color: white;
+            border-color: #dc3545;
+        }
+        .multi-input-label {
+            align-self: start;
+            padding-top: 8px;
+        }
     </style>
 </head>
 <body>
-<h1>Profile</h1>
-<p>Save the info you typically fill in applications.</p>
-<div class="grid">
-    <label>First name</label><input id="firstName" />
-    <label>Last name / Surname</label><input id="lastName" />
-    <label>Full name</label><input id="fullName" />
-    <label>Email</label><input id="email" type="email" />
-    <label>Phone</label><input id="phone" type="tel" />
-    <label>Birthday</label><input id="birthday" type="date" />
-    <label>Address line 1</label><input id="address1" />
-    <label>City</label><input id="city" />
-    <label>Postal code / ZIP</label><input id="postalCode" />
-    <label>Country</label><input id="country" />
-
-    <label>University</label><input id="university" />
-    <label>Degree</label><input id="degree" />
-    <label>Major / Field</label><input id="major" />
-    <label>GPA / CAP</label><input id="gpa" />
-    <label>Graduation year</label><input id="gradYear" type="number" />
-
-    <label>LinkedIn</label><input id="linkedin" type="url" />
-    <label>GitHub</label><input id="github" type="url" />
-    <label>Website / Portfolio</label><input id="website" type="url" />
-    <label>Summary / Bio</label><textarea id="summary" rows="3"></textarea>
-</div>
-
-<h2>Encryption</h2>
-<p>Encrypt profile at rest with a passphrase. You’ll unlock it from the popup when filling forms.</p>
-<div class="grid">
-    <label>Enable encryption</label><input id="encEnabled" type="checkbox" />
-    <label>Passphrase</label><input id="encPass" type="password" />
-    <label>Confirm passphrase</label><input id="encPass2" type="password" />
-</div>
-<p id="encStatus" style="font-size:12px;color:#666;margin-top:6px;"></p>
-
-const syncControlsHTML = `
-<h2>AWS Sync Settings</h2>
-<div class="sync-controls">
-    <div class="sync-status" id="syncStatus">
-        <span id="syncStatusText">Not synced</span>
-        <span id="lastSyncTime"></span>
+<div class="container">
+    <h1>AutoFill Profile</h1>
+    <p class="info-text">Save the information you typically enter in job applications and forms.</p>
+    
+    <div class="grid">
+        <!-- Personal Information -->
+        <div class="section-title">👤 Personal Information</div>
+        <label>First name</label><input id="firstName" />
+        <label>Middle name</label><input id="middleName" />
+        <label>Last name</label><input id="lastName" />
+        <label>Full name</label><input id="fullName" />
+        <label>Preferred name</label><input id="preferredName" placeholder="Nickname or preferred name" />
+        <label>Maiden name</label><input id="maidenName" placeholder="Previous/birth name" />
+        
+        <!-- Contact Information -->
+        <div class="section-title">📞 Contact Information</div>
+        <label>Email</label><input id="email" type="email" />
+        <label>Work email</label><input id="workEmail" type="email" />
+        <label>Phone</label><input id="phone" type="tel" />
+        <label>Alternative phone</label><input id="altPhone" type="tel" placeholder="Home/secondary phone" />
+        
+        <!-- Demographics -->
+        <div class="section-title">📋 Demographics</div>
+        <label>Birthday</label><input id="birthday" type="date" />
+        <label>Sex/Gender</label>
+        <select id="sex">
+            <option value="">Select...</option>
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+            <option value="Other">Other</option>
+            <option value="Prefer not to say">Prefer not to say</option>
+        </select>
+        <label>Nationality</label>
+        <select id="nationality">
+            <option value="">Select your nationality...</option>
+            <optgroup label="Americas">
+                <option value="American">American (USA)</option>
+                <option value="Canadian">Canadian</option>
+                <option value="Mexican">Mexican</option>
+                <option value="Brazilian">Brazilian</option>
+                <option value="Argentinian">Argentinian</option>
+                <option value="Chilean">Chilean</option>
+                <option value="Colombian">Colombian</option>
+                <option value="Peruvian">Peruvian</option>
+                <option value="Venezuelan">Venezuelan</option>
+                <option value="Cuban">Cuban</option>
+                <option value="Dominican">Dominican</option>
+                <option value="Guatemalan">Guatemalan</option>
+                <option value="Jamaican">Jamaican</option>
+            </optgroup>
+            <optgroup label="Europe">
+                <option value="British">British (UK)</option>
+                <option value="Irish">Irish</option>
+                <option value="French">French</option>
+                <option value="German">German</option>
+                <option value="Italian">Italian</option>
+                <option value="Spanish">Spanish</option>
+                <option value="Portuguese">Portuguese</option>
+                <option value="Dutch">Dutch (Netherlands)</option>
+                <option value="Belgian">Belgian</option>
+                <option value="Swiss">Swiss</option>
+                <option value="Austrian">Austrian</option>
+                <option value="Swedish">Swedish</option>
+                <option value="Norwegian">Norwegian</option>
+                <option value="Danish">Danish</option>
+                <option value="Finnish">Finnish</option>
+                <option value="Polish">Polish</option>
+                <option value="Czech">Czech</option>
+                <option value="Hungarian">Hungarian</option>
+                <option value="Romanian">Romanian</option>
+                <option value="Bulgarian">Bulgarian</option>
+                <option value="Greek">Greek</option>
+                <option value="Croatian">Croatian</option>
+                <option value="Serbian">Serbian</option>
+                <option value="Ukrainian">Ukrainian</option>
+                <option value="Russian">Russian</option>
+            </optgroup>
+            <optgroup label="Asia">
+                <option value="Chinese">Chinese</option>
+                <option value="Japanese">Japanese</option>
+                <option value="Korean">Korean (South)</option>
+                <option value="Taiwanese">Taiwanese</option>
+                <option value="Hong Kong">Hong Kong</option>
+                <option value="Indian">Indian</option>
+                <option value="Pakistani">Pakistani</option>
+                <option value="Bangladeshi">Bangladeshi</option>
+                <option value="Sri Lankan">Sri Lankan</option>
+                <option value="Nepalese">Nepalese</option>
+                <option value="Thai">Thai</option>
+                <option value="Vietnamese">Vietnamese</option>
+                <option value="Filipino">Filipino</option>
+                <option value="Indonesian">Indonesian</option>
+                <option value="Malaysian">Malaysian</option>
+                <option value="Singaporean">Singaporean</option>
+                <option value="Burmese">Burmese (Myanmar)</option>
+                <option value="Cambodian">Cambodian</option>
+                <option value="Laotian">Laotian</option>
+            </optgroup>
+            <optgroup label="Middle East">
+                <option value="Israeli">Israeli</option>
+                <option value="Palestinian">Palestinian</option>
+                <option value="Lebanese">Lebanese</option>
+                <option value="Jordanian">Jordanian</option>
+                <option value="Syrian">Syrian</option>
+                <option value="Iraqi">Iraqi</option>
+                <option value="Iranian">Iranian</option>
+                <option value="Saudi">Saudi Arabian</option>
+                <option value="Emirati">Emirati (UAE)</option>
+                <option value="Qatari">Qatari</option>
+                <option value="Kuwaiti">Kuwaiti</option>
+                <option value="Bahraini">Bahraini</option>
+                <option value="Omani">Omani</option>
+                <option value="Yemeni">Yemeni</option>
+                <option value="Turkish">Turkish</option>
+            </optgroup>
+            <optgroup label="Africa">
+                <option value="Egyptian">Egyptian</option>
+                <option value="South African">South African</option>
+                <option value="Nigerian">Nigerian</option>
+                <option value="Kenyan">Kenyan</option>
+                <option value="Ethiopian">Ethiopian</option>
+                <option value="Ghanaian">Ghanaian</option>
+                <option value="Moroccan">Moroccan</option>
+                <option value="Algerian">Algerian</option>
+                <option value="Tunisian">Tunisian</option>
+                <option value="Libyan">Libyan</option>
+                <option value="Sudanese">Sudanese</option>
+                <option value="Ugandan">Ugandan</option>
+                <option value="Tanzanian">Tanzanian</option>
+                <option value="Zimbabwean">Zimbabwean</option>
+                <option value="Senegalese">Senegalese</option>
+            </optgroup>
+            <optgroup label="Oceania">
+                <option value="Australian">Australian</option>
+                <option value="New Zealander">New Zealander</option>
+                <option value="Fijian">Fijian</option>
+                <option value="Papua New Guinean">Papua New Guinean</option>
+                <option value="Samoan">Samoan</option>
+                <option value="Tongan">Tongan</option>
+            </optgroup>
+        </select>
+        
+        <!-- Address -->
+        <div class="section-title">🏠 Address</div>
+        <label>Address line 1</label><input id="address1" />
+        <label>Address line 2</label><input id="address2" placeholder="Apartment, suite, unit, etc." />
+        <label>City</label><input id="cityAddress" />
+        <label>State/Province</label><input id="stateAddress" />
+        <label>Postal/ZIP code</label><input id="postalCode" />
+        <label>Country</label><input id="countryAddress" />
+        
+        <!-- Education -->
+        <div class="section-title">🎓 Education</div>
+        <label class="multi-input-label">Universities/Colleges</label>
+        <div id="universityContainer" class="multi-input-container">
+            <div class="multi-input-wrapper">
+                <input class="university-input" placeholder="e.g., Stanford University" />
+                <button class="add-btn" onclick="addField('university')">+</button>
+            </div>
+        </div>
+        
+        <label class="multi-input-label">Degrees</label>
+        <div id="degreeContainer" class="multi-input-container">
+            <div class="multi-input-wrapper">
+                <input class="degree-input" placeholder="e.g., Bachelor of Science" />
+                <button class="add-btn" onclick="addField('degree')">+</button>
+            </div>
+        </div>
+        
+        <label class="multi-input-label">Majors/Fields</label>
+        <div id="majorContainer" class="multi-input-container">
+            <div class="multi-input-wrapper">
+                <input class="major-input" placeholder="e.g., Computer Science" />
+                <button class="add-btn" onclick="addField('major')">+</button>
+            </div>
+        </div>
+        
+        <label>GPA/CAP</label><input id="gpa" />
+        <label>Graduation year</label><input id="gradYear" type="number" min="1900" max="2100" />
+        
+        <!-- Professional -->
+        <div class="section-title">💼 Professional Information</div>
+        <label class="multi-input-label">Employers</label>
+        <div id="employerContainer" class="multi-input-container">
+            <div class="multi-input-wrapper">
+                <input class="employer-input" placeholder="e.g., Google, Microsoft" />
+                <button class="add-btn" onclick="addField('employer')">+</button>
+            </div>
+        </div>
+        
+        <label class="multi-input-label">Job Titles</label>
+        <div id="jobTitleContainer" class="multi-input-container">
+            <div class="multi-input-wrapper">
+                <input class="jobTitle-input" placeholder="e.g., Software Engineer" />
+                <button class="add-btn" onclick="addField('jobTitle')">+</button>
+            </div>
+        </div>
+        
+        <label>Years of experience</label><input id="workExperience" type="number" min="0" max="100" />
+        
+        <!-- Online Profiles -->
+        <div class="section-title">🌐 Online Profiles</div>
+        <label>LinkedIn</label><input id="linkedin" type="url" placeholder="https://linkedin.com/in/..." />
+        <label>GitHub</label><input id="github" type="url" placeholder="https://github.com/..." />
+        <label>Website/Portfolio</label><input id="website" type="url" />
+        
+        <!-- Additional Information -->
+        <div class="section-title">📝 Additional Information</div>
+        <label class="multi-input-label">Languages</label>
+        <div id="languagesContainer" class="multi-input-container">
+            <div class="multi-input-wrapper">
+                <input class="languages-input" placeholder="e.g., English, Spanish, Mandarin" />
+                <button class="add-btn" onclick="addField('languages')">+</button>
+            </div>
+        </div>
+        
+        <label>Skills</label><textarea id="skills" rows="3" placeholder="Key skills separated by commas"></textarea>
+        <label>Summary/Bio</label><textarea id="summary" rows="3" placeholder="Brief professional summary"></textarea>
     </div>
-    <div class="sync-actions">
-        <button id="fetchFromAWS">↓ Fetch from Company Database</button>
-        <button id="pushToAWS">↑ Push to Company Database</button>
-        <label>
-            <input type="checkbox" id="autoSync" checked>
-            Auto-sync with company database
-        </label>
+
+    <h2>🔐 Encryption</h2>
+    <p class="info-text">Encrypt your profile data with a passphrase for enhanced security.</p>
+    <div class="grid">
+        <label>Enable encryption</label><input id="encEnabled" type="checkbox" />
+        <label>Passphrase</label><input id="encPass" type="password" />
+        <label>Confirm passphrase</label><input id="encPass2" type="password" />
     </div>
-    <div id="syncMessage" style="display:none; padding:10px; margin:10px 0;"></div>
+    <p id="encStatus"></p>
+
+    <h2>☁️ AWS Sync Settings</h2>
+    <div class="sync-controls">
+        <div class="sync-status" id="syncStatus">
+            <span id="syncStatusText">Not synced</span>
+            <span id="lastSyncTime"></span>
+        </div>
+        <div class="sync-actions">
+            <button id="fetchFromAWS">↓ Fetch from Company Database</button>
+            <button id="pushToAWS">↑ Push to Company Database</button>
+            <label style="margin-top: 12px; display: inline-flex; align-items: center;">
+                <input type="checkbox" id="autoSync" checked style="width: auto; margin-right: 8px;">
+                Auto-sync with company database
+            </label>
+        </div>
+        <div id="syncMessage" style="display:none;"></div>
+    </div>
+
+    <div class="row" style="margin-top: 24px;">
+        <button id="save">Save Profile</button>
+        <button id="reset" title="Clear all stored data">Clear All Data</button>
+    </div>
 </div>
 
-<div class="row">
-    <button id="save">Save</button>
-    <button id="reset" title="Clear all stored data">Clear</button>
-</div>
+<script>
+// Multi-input field management
+function addField(fieldType) {
+    const container = document.getElementById(fieldType + 'Container');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'multi-input-wrapper';
+    
+    const input = document.createElement('input');
+    input.className = fieldType + '-input';
+    input.placeholder = getPlaceholder(fieldType);
+    
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remove-btn';
+    removeBtn.innerHTML = '−';
+    removeBtn.onclick = function() { wrapper.remove(); };
+    
+    wrapper.appendChild(input);
+    wrapper.appendChild(removeBtn);
+    container.appendChild(wrapper);
+}
 
+function getPlaceholder(fieldType) {
+    const placeholders = {
+        'university': 'e.g., Harvard University',
+        'degree': 'e.g., Master of Science',
+        'major': 'e.g., Data Science',
+        'employer': 'e.g., Amazon, Apple',
+        'jobTitle': 'e.g., Product Manager',
+        'languages': 'e.g., French, German'
+    };
+    return placeholders[fieldType] || '';
+}
+
+// Collect values from multi-input fields
+function collectMultiInputValues(fieldType) {
+    const inputs = document.querySelectorAll('.' + fieldType + '-input');
+    const values = [];
+    inputs.forEach(input => {
+        if (input.value.trim()) {
+            values.push(input.value.trim());
+        }
+    });
+    return values.join(', ');
+}
+
+// Populate multi-input fields from saved data
+function populateMultiInputFields(fieldType, value) {
+    if (!value) return;
+    
+    const container = document.getElementById(fieldType + 'Container');
+    const values = value.split(',').map(v => v.trim()).filter(v => v);
+    
+    // Clear existing inputs except the first one
+    const wrappers = container.querySelectorAll('.multi-input-wrapper');
+    for (let i = 1; i < wrappers.length; i++) {
+        wrappers[i].remove();
+    }
+    
+    // Set first value
+    if (values.length > 0) {
+        const firstInput = container.querySelector('.' + fieldType + '-input');
+        if (firstInput) firstInput.value = values[0];
+    }
+    
+    // Add additional fields for remaining values
+    for (let i = 1; i < values.length; i++) {
+        addField(fieldType);
+        const inputs = container.querySelectorAll('.' + fieldType + '-input');
+        inputs[inputs.length - 1].value = values[i];
+    }
+}
+</script>
+
+<script src="crypto.js"></script>
+<script src="aws_service.js"></script>
 <script src="options.js"></script>
 </body>
 </html>
