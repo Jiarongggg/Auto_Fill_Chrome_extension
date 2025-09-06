@@ -9,22 +9,18 @@ async function ensureInjected(tabId) {
             target: { tabId },
             func: () => Boolean(window.__AF_CONTENT_READY__)
         });
-        if (result) return; // Already injected
+        if (result) {
+            console.log("Content script already active");
+            return true;
+        }
     } catch (error) {
         console.log("Could not check injection status:", error);
     }
     
-    // Try to inject the scripts
-    try {
-        await chrome.scripting.executeScript({ 
-            target: { tabId }, 
-            files: ["crypto.js", "content.js"] 
-        });
-        console.log("Scripts injected successfully");
-    } catch (error) {
-        console.error("Failed to inject scripts:", error);
-        throw error;
-    }
+    // Note: Scripts are already injected via manifest.json content_scripts
+    // This function now only checks if they're ready
+    console.log("Content scripts should be injected via manifest");
+    return false;
 }
 
 async function sendToTab(type) {
@@ -50,15 +46,19 @@ async function sendToTab(type) {
     try {
         await chrome.tabs.sendMessage(tab.id, { type });
     } catch (error) {
-        console.log("First attempt failed, trying to inject script...");
-        try {
-            await ensureInjected(tab.id);
-            // Small delay to let script initialize
-            await new Promise(resolve => setTimeout(resolve, 100));
-            await chrome.tabs.sendMessage(tab.id, { type });
-        } catch (retryError) {
-            console.error("Failed after retry:", retryError);
-            alert("Could not connect to this page.\nTry refreshing the page or navigate to a different website.");
+        console.log("Message failed:", error);
+        
+        // Check if content script is loaded
+        const isReady = await ensureInjected(tab.id);
+        
+        if (!isReady) {
+            // Content scripts should be auto-injected via manifest
+            // If not ready, the page might need a refresh
+            alert("AutoFill Scout is not active on this page.\nPlease refresh the page and try again.");
+        } else {
+            // Script is loaded but not responding - might be context invalidation
+            console.error("Content script not responding:", error);
+            alert("Connection lost with the page.\nThis can happen after extension updates.\nPlease refresh the page.");
         }
     }
 }

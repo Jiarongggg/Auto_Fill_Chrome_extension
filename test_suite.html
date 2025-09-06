@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AutoFill Scout - Test Suite</title>
+    <style>
+        body { font-family: monospace; padding: 20px; background: #1e1e1e; color: #d4d4d4; }
+        .test-pass { color: #4ec9b0; }
+        .test-fail { color: #f48771; }
+        .test-section { margin: 20px 0; padding: 15px; background: #2d2d30; border-radius: 5px; }
+        .test-title { font-size: 18px; color: #569cd6; margin-bottom: 10px; }
+        .summary { margin-top: 30px; padding: 20px; background: #252526; border-radius: 5px; }
+        .success { background: #1e3a1e; color: #4ec9b0; }
+        .failure { background: #3a1e1e; color: #f48771; }
+        pre { background: #1e1e1e; padding: 10px; border-radius: 3px; overflow-x: auto; }
+        .error-detail { color: #ce9178; font-size: 12px; margin-left: 20px; }
+    </style>
+</head>
+<body>
+    <h1>AutoFill Scout Extension - Test Suite</h1>
+    <p>This page tests the extension files for common JavaScript errors.</p>
+    
+    <div id="results"></div>
+    
+    <div class="summary" id="summary"></div>
+
+    <script>
+        // Mock Chrome API for testing
+        window.chrome = {
+            runtime: {
+                id: 'mock-extension-id',
+                onMessage: { addListener: () => {} },
+                onInstalled: { addListener: () => {} },
+                openOptionsPage: () => {}
+            },
+            storage: {
+                local: {
+                    get: (keys, callback) => callback({}),
+                    set: () => {}
+                },
+                session: {
+                    get: (keys, callback) => callback({}),
+                    set: () => {}
+                }
+            },
+            tabs: {
+                query: () => Promise.resolve([]),
+                sendMessage: () => Promise.resolve()
+            },
+            scripting: {
+                executeScript: () => Promise.resolve([{result: true}])
+            }
+        };
+
+        // Mock crypto API
+        window.crypto = {
+            subtle: {
+                importKey: () => Promise.resolve(),
+                deriveKey: () => Promise.resolve(),
+                encrypt: () => Promise.resolve(new ArrayBuffer(0)),
+                decrypt: () => Promise.resolve(new ArrayBuffer(0))
+            },
+            getRandomValues: (arr) => arr
+        };
+
+        const results = document.getElementById('results');
+        const summary = document.getElementById('summary');
+        let totalTests = 0;
+        let passedTests = 0;
+        let failedTests = [];
+
+        function testScript(name, scriptPath, expectedGlobals = []) {
+            const section = document.createElement('div');
+            section.className = 'test-section';
+            
+            const title = document.createElement('div');
+            title.className = 'test-title';
+            title.textContent = `Testing ${name}`;
+            section.appendChild(title);
+            
+            const script = document.createElement('script');
+            script.src = scriptPath;
+            
+            return new Promise((resolve) => {
+                script.onload = () => {
+                    totalTests++;
+                    
+                    // Check for expected globals
+                    let success = true;
+                    let errors = [];
+                    
+                    expectedGlobals.forEach(global => {
+                        if (typeof window[global] === 'undefined') {
+                            success = false;
+                            errors.push(`Missing expected global: ${global}`);
+                        }
+                    });
+                    
+                    if (success) {
+                        passedTests++;
+                        const result = document.createElement('div');
+                        result.className = 'test-pass';
+                        result.innerHTML = '✓ Script loaded successfully';
+                        section.appendChild(result);
+                        
+                        expectedGlobals.forEach(global => {
+                            const globalCheck = document.createElement('div');
+                            globalCheck.className = 'test-pass';
+                            globalCheck.innerHTML = `✓ Global "${global}" is defined`;
+                            section.appendChild(globalCheck);
+                        });
+                    } else {
+                        failedTests.push(name);
+                        errors.forEach(error => {
+                            const result = document.createElement('div');
+                            result.className = 'test-fail';
+                            result.innerHTML = `✗ ${error}`;
+                            section.appendChild(result);
+                        });
+                    }
+                    
+                    results.appendChild(section);
+                    resolve();
+                };
+                
+                script.onerror = (e) => {
+                    totalTests++;
+                    failedTests.push(name);
+                    
+                    const result = document.createElement('div');
+                    result.className = 'test-fail';
+                    result.innerHTML = `✗ Failed to load script`;
+                    section.appendChild(result);
+                    
+                    const error = document.createElement('div');
+                    error.className = 'error-detail';
+                    error.textContent = 'Check browser console for syntax errors';
+                    section.appendChild(error);
+                    
+                    results.appendChild(section);
+                    resolve();
+                };
+                
+                // Add error listener for runtime errors
+                const errorHandler = (e) => {
+                    if (e.filename && e.filename.includes(scriptPath)) {
+                        const errorDiv = document.createElement('div');
+                        errorDiv.className = 'test-fail';
+                        errorDiv.innerHTML = `✗ Runtime error at line ${e.lineno}: ${e.message}`;
+                        section.appendChild(errorDiv);
+                        
+                        // Don't count as failed if script loaded
+                        if (!failedTests.includes(name) && script.onload) {
+                            totalTests++;
+                            failedTests.push(name);
+                        }
+                    }
+                };
+                
+                window.addEventListener('error', errorHandler);
+                
+                document.head.appendChild(script);
+                
+                // Clean up error handler after a delay
+                setTimeout(() => {
+                    window.removeEventListener('error', errorHandler);
+                }, 1000);
+            });
+        }
+
+        async function runTests() {
+            // Test each script file
+            await testScript('crypto.js', 'crypto.js', ['AF_CRYPTO']);
+            await testScript('aws_service.js', 'aws_service.js', ['SERVICE_CONFIG', 'FieldMatchingService', 'StorageService']);
+            await testScript('content.js', 'content.js', ['__AF_CONTENT_READY__']);
+            
+            // Show summary
+            const summaryText = `
+                <h2>Test Summary</h2>
+                <p>Total Tests: ${totalTests}</p>
+                <p class="test-pass">Passed: ${passedTests}</p>
+                <p class="test-fail">Failed: ${failedTests.length}</p>
+                ${failedTests.length === 0 ? 
+                    '<h3 class="test-pass">✅ All tests passed! The extension should work correctly.</h3>' :
+                    '<h3 class="test-fail">⚠️ Some tests failed: ' + failedTests.join(', ') + '</h3>'
+                }
+                <h3>Next Steps:</h3>
+                <ol>
+                    <li>Open Chrome and go to chrome://extensions/</li>
+                    <li>Click "Load unpacked" and select this directory</li>
+                    <li>The extension should load without errors</li>
+                    <li>Test on any website by clicking the extension icon</li>
+                </ol>
+            `;
+            
+            summary.className = failedTests.length === 0 ? 'summary success' : 'summary failure';
+            summary.innerHTML = summaryText;
+        }
+
+        // Run tests when page loads
+        window.onload = runTests;
+    </script>
+</body>
+</html>

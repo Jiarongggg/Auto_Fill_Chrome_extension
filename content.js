@@ -1378,13 +1378,27 @@ setInterval(() => {
     chrome.storage.local.set({ af_field_knowledge: knowledge });
 }, 30000);
 
-chrome.storage.local.get(["af_autoFillEnabled"], ({ af_autoFillEnabled }) => {
-    if (af_autoFillEnabled) fillNow();
-});
+// Wrap Chrome API calls with error handling
+try {
+    // Check if extension context is still valid
+    if (chrome.runtime?.id) {
+        chrome.storage.local.get(["af_autoFillEnabled"], ({ af_autoFillEnabled }) => {
+            if (af_autoFillEnabled) fillNow();
+        });
 
-chrome.runtime.onMessage.addListener((msg) => {
-    if (msg?.type === "AF_FILL_NOW") fillNow();
-    if (msg?.type === "AF_LIST_FIELDS") listFillableFields();
-});
+        chrome.runtime.onMessage.addListener((msg) => {
+            if (msg?.type === "AF_FILL_NOW") fillNow();
+            if (msg?.type === "AF_LIST_FIELDS") listFillableFields();
+        });
+    } else {
+        console.warn("[AutoFill] Extension context lost - extension may have been reloaded");
+    }
+} catch (error) {
+    if (error.message?.includes('Extension context invalidated')) {
+        console.warn("[AutoFill] Extension was reloaded. Please refresh the page to restore functionality.");
+    } else {
+        console.error("[AutoFill] Error setting up listeners:", error);
+    }
+}
 
 })();

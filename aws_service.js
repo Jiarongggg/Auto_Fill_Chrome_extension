@@ -1,3 +1,10 @@
+(function() {
+    // Prevent multiple injections
+    if (window.SERVICE_CONFIG) {
+        console.log("[AutoFill] AWS Service already loaded, skipping");
+        return;
+    }
+
 // ============================================
 // AWS SERVICE MOCK FOR AUTOFILL EXTENSION
 // ============================================
@@ -629,3 +636,5 @@ console.log('[AutoFill] AWS Service Module Loaded');
 window.FieldMatchingService = FieldMatchingService;
 window.StorageService = StorageService;
 window.SERVICE_CONFIG = SERVICE_CONFIG;
+
+})();
